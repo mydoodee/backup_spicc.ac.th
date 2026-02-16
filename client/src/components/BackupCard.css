@@ -1,0 +1,81 @@
+.backup-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+    height: 100%;
+}
+
+.backup-card-header {
+    display: flex;
+    gap: var(--spacing-md);
+}
+
+.backup-icon {
+    width: 56px;
+    height: 56px;
+    background: var(--gradient-primary);
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: var(--shadow-md);
+}
+
+.backup-icon svg {
+    width: 32px;
+    height: 32px;
+    color: var(--white);
+}
+
+.backup-info h3 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: var(--spacing-xs);
+    color: var(--white);
+}
+
+.backup-info p {
+    font-size: 0.875rem;
+    color: var(--gray);
+    line-height: 1.5;
+}
+
+.backup-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    margin-top: auto;
+}
+
+.backup-message {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    animation: slideIn 0.3s ease-out;
+}
+
+.backup-message.success {
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #10b981;
+}
+
+.backup-message.error {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+}
+
+.backup-message svg {
+    flex-shrink: 0;
+}
+
+.btn-backup {
+    width: 100%;
+    justify-content: center;
+    padding: 1rem;
+}
