@@ -14,10 +14,23 @@ function Dashboard({ user, onLogout }) {
         total: 0,
         totalPages: 1
     })
+    const [autoBackupStatus, setAutoBackupStatus] = useState(null)
 
     useEffect(() => {
         fetchBackupHistory(pagination.page)
+        fetchAutoBackupStatus()
     }, [refreshKey, pagination.page])
+
+    const fetchAutoBackupStatus = async () => {
+        try {
+            const response = await axios.get('/api/settings/backup-schedule')
+            if (response.data.success) {
+                setAutoBackupStatus(response.data.settings)
+            }
+        } catch (error) {
+            console.error('Failed to fetch auto-backup status:', error)
+        }
+    }
 
     const fetchBackupHistory = async (page = 1) => {
         setIsLoading(true)
@@ -124,6 +137,36 @@ function Dashboard({ user, onLogout }) {
                             />
                         </div>
                     </section>
+
+                    {/* Auto-Backup Status Summary */}
+                    {autoBackupStatus && (
+                        <section className="auto-backup-summary fade-in glass-dark" style={{ marginTop: '2rem', padding: '1.5rem', borderRadius: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                    <div className={`status-dot ${autoBackupStatus.enabled ? 'active' : 'inactive'}`} style={{
+                                        width: '12px',
+                                        height: '12px',
+                                        borderRadius: '50%',
+                                        background: autoBackupStatus.enabled ? '#10b981' : '#6b7280',
+                                        boxShadow: autoBackupStatus.enabled ? '0 0 10px #10b981' : 'none'
+                                    }}></div>
+                                    <div>
+                                        <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff' }}>
+                                            Auto-Backup: {autoBackupStatus.enabled ? 'Enabled' : 'Disabled'}
+                                        </h3>
+                                        <p style={{ margin: 0, fontSize: '0.85rem', color: 'rgba(255,255,255,0.6)' }}>
+                                            {autoBackupStatus.enabled
+                                                ? `Next run: ${autoBackupStatus.cron} (${autoBackupStatus.type})`
+                                                : 'Enable in settings to automate your backups'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <a href="/settings" className="btn btn-outline btn-sm">
+                                    Manage Schedule
+                                </a>
+                            </div>
+                        </section>
+                    )}
 
                     {/* Backup History */}
                     <section className="history-section fade-in">

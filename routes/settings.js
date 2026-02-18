@@ -1,5 +1,7 @@
 import express from 'express';
 import googleDriveService from '../services/google-drive.js';
+import { db } from '../server.js';
+import schedulerService from '../services/scheduler-service.js';
 
 const router = express.Router();
 
@@ -102,6 +104,57 @@ router.post('/google-drive/test', async (req, res) => {
             message: 'Failed to test Google Drive connection',
             error: error.message
         });
+    }
+});
+
+// Get Auto-Backup settings
+router.get('/backup-schedule', async (req, res) => {
+    try {
+        const [settings] = await db.query('SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE "auto_backup_%"');
+        const config = {};
+        settings.forEach(s => {
+            config[s.setting_key] = s.setting_value;
+        });
+
+        res.json({
+            success: true,
+            settings: {
+                enabled: config['auto_backup_enabled'] === 'true',
+                cron: config['auto_backup_cron'] || '0 3 * * *',
+                type: config['auto_backup_type'] || 'both'
+            }
+        });
+    } catch (error) {
+        console.error('Get backup schedule error:', error);
+        res.status(500).json({ success: false, message: 'Failed to get backup schedule' });
+    }
+});
+
+// Update Auto-Backup settings
+router.post('/backup-schedule', async (req, res) => {
+    try {
+        const { enabled, cron, type } = req.body;
+
+        const updates = [
+            { key: 'auto_backup_enabled', value: String(enabled) },
+            { key: 'auto_backup_cron', value: cron },
+            { key: 'auto_backup_type', value: type }
+        ];
+
+        for (const update of updates) {
+            await db.query(
+                'UPDATE settings SET setting_value = ? WHERE setting_key = ?',
+                [update.value, update.key]
+            );
+        }
+
+        // Trigger scheduler reload
+        await schedulerService.reload();
+
+        res.json({ success: true, message: 'Backup schedule updated successfully' });
+    } catch (error) {
+        console.error('Update backup schedule error:', error);
+        res.status(500).json({ success: false, message: 'Failed to update backup schedule' });
     }
 });
 

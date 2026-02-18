@@ -6,8 +6,15 @@ function Settings({ user, onBack }) {
     const [driveStatus, setDriveStatus] = useState(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isTesting, setIsTesting] = useState(false)
+    const [isSaving, setIsSaving] = useState(false)
     const [testResult, setTestResult] = useState(null)
+    const [updateResult, setUpdateResult] = useState(null)
     const [authUrl, setAuthUrl] = useState(null)
+    const [scheduleSettings, setScheduleSettings] = useState({
+        enabled: false,
+        cron: '0 3 * * *',
+        type: 'both'
+    })
 
     useEffect(() => {
         // Check URL parameters for OAuth status
@@ -32,6 +39,7 @@ function Settings({ user, onBack }) {
         }
 
         fetchDriveStatus()
+        fetchScheduleSettings()
     }, [])
 
     const fetchDriveStatus = async () => {
@@ -40,7 +48,6 @@ function Settings({ user, onBack }) {
             setDriveStatus(response.data)
 
             if (response.data.enabled && !response.data.connected) {
-                // Fetch auth URL if not connected
                 const authResponse = await axios.get('/api/oauth/google/authorize')
                 if (authResponse.data.success) {
                     setAuthUrl(authResponse.data.authUrl)
@@ -50,6 +57,42 @@ function Settings({ user, onBack }) {
             console.error('Failed to fetch Drive status:', error)
         } finally {
             setIsLoading(false)
+        }
+    }
+
+    const fetchScheduleSettings = async () => {
+        try {
+            const response = await axios.get('/api/settings/backup-schedule')
+            if (response.data.success) {
+                setScheduleSettings(response.data.settings)
+            }
+        } catch (error) {
+            console.error('Failed to fetch schedule settings:', error)
+        }
+    }
+
+    const handleUpdateSchedule = async (e) => {
+        e.preventDefault()
+        setIsSaving(true)
+        setUpdateResult(null)
+
+        try {
+            const response = await axios.post('/api/settings/backup-schedule', scheduleSettings)
+            if (response.data.success) {
+                setUpdateResult({
+                    success: true,
+                    message: 'Schedule updated successfully'
+                })
+                setTimeout(() => setUpdateResult(null), 3000)
+            }
+        } catch (error) {
+            setUpdateResult({
+                success: false,
+                message: 'Update failed',
+                error: error.message
+            })
+        } finally {
+            setIsSaving(false)
         }
     }
 
@@ -251,14 +294,94 @@ function Settings({ user, onBack }) {
                             </div>
                         )}
                     </div>
+                </section>
 
-                    {!driveStatus?.enabled && (
-                        <div className="setup-guide">
-                            <h3>📖 Configuration Required</h3>
-                            <p>Google Drive integration is currently disabled in configuration.</p>
-                            <p>Please check <code>GOOGLE_OAUTH_SETUP.md</code> for setup instructions.</p>
+                {/* Auto-Backup Schedule Section */}
+                <section className="settings-section glass-dark fade-in" style={{ marginTop: '2rem' }}>
+                    <div className="section-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </div>
+
+                    <h2>Auto-Backup Schedule</h2>
+                    <p className="section-description">
+                        Configure the automated backup schedule for your databases and files.
+                    </p>
+
+                    <form onSubmit={handleUpdateSchedule} className="schedule-form">
+                        <div className="form-group">
+                            <label className="switch-label">
+                                <span>Enable Automated Backup</span>
+                                <div className="switch">
+                                    <input
+                                        type="checkbox"
+                                        checked={scheduleSettings.enabled}
+                                        onChange={(e) => setScheduleSettings({ ...scheduleSettings, enabled: e.target.checked })}
+                                    />
+                                    <span className="slider round"></span>
+                                </div>
+                            </label>
                         </div>
-                    )}
+
+                        <div className="form-grid">
+                            <div className="form-group">
+                                <label>Backup Frequency (Cron Expression)</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={scheduleSettings.cron}
+                                    onChange={(e) => setScheduleSettings({ ...scheduleSettings, cron: e.target.value })}
+                                    placeholder="e.g. 0 3 * * *"
+                                />
+                                <small className="input-hint">
+                                    Current setting: {scheduleSettings.cron === '0 3 * * *' ? 'Every day at 3:00 AM' : 'Custom schedule'}
+                                </small>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Backup Type</label>
+                                <select
+                                    className="form-input"
+                                    value={scheduleSettings.type}
+                                    onChange={(e) => setScheduleSettings({ ...scheduleSettings, type: e.target.value })}
+                                >
+                                    <option value="both">Both (MySQL & Files)</option>
+                                    <option value="mysql">MySQL Databases Only</option>
+                                    <option value="files">File System Only</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="action-buttons" style={{ marginTop: '1.5rem' }}>
+                            <button
+                                type="submit"
+                                className="btn btn-primary"
+                                disabled={isSaving}
+                            >
+                                {isSaving ? (
+                                    <>
+                                        <div className="spinner"></div>
+                                        Saving...
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                                        </svg>
+                                        Save Schedule
+                                    </>
+                                )}
+                            </button>
+                        </div>
+
+                        {updateResult && (
+                            <div className={`test-result ${updateResult.success ? 'success' : 'error'}`} style={{ marginTop: '1rem' }}>
+                                <span>{updateResult.message}</span>
+                                {updateResult.error && <small className="error-detail">{updateResult.error}</small>}
+                            </div>
+                        )}
+                    </form>
                 </section>
             </div>
         </div>

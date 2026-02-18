@@ -12,6 +12,7 @@ import authRoutes from './routes/auth.js';
 import backupRoutes from './routes/backup.js';
 import settingsRoutes from './routes/settings.js';
 import oauthRoutes from './routes/oauth.js';
+import schedulerService from './services/scheduler-service.js';
 
 dotenv.config();
 
@@ -75,8 +76,32 @@ db.getConnection()
         )
       `;
 
+      const createSettingsTable = `
+        CREATE TABLE IF NOT EXISTS settings (
+          id INT PRIMARY KEY AUTO_INCREMENT,
+          setting_key VARCHAR(50) UNIQUE NOT NULL,
+          setting_value TEXT,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `;
+
       await connection.query(createUsersTable);
       await connection.query(createBackupHistoryTable);
+      await connection.query(createSettingsTable);
+
+      // Initialize default settings if they don't exist
+      const defaultSettings = [
+        { key: 'auto_backup_enabled', value: process.env.AUTO_BACKUP_ENABLED || 'false' },
+        { key: 'auto_backup_cron', value: process.env.AUTO_BACKUP_CRON || '0 3 * * *' },
+        { key: 'auto_backup_type', value: process.env.AUTO_BACKUP_TYPE || 'both' }
+      ];
+
+      for (const setting of defaultSettings) {
+        await connection.query(
+          'INSERT IGNORE INTO settings (setting_key, setting_value) VALUES (?, ?)',
+          [setting.key, setting.value]
+        );
+      }
 
       // Check if admin user exists, if not create it
       const [users] = await connection.query('SELECT * FROM users WHERE username = ?', ['adminserver']);
@@ -92,6 +117,11 @@ db.getConnection()
       }
 
       console.log('✅ Database tables verified/created');
+
+      // Initialize automated scheduler after tables are ready
+      schedulerService.init().catch(err => {
+        console.error('❌ Scheduler initialization failed:', err);
+      });
     } catch (err) {
       console.warn('⚠️  Table creation warning:', err.message);
     }
@@ -128,17 +158,45 @@ app.use('/api/backup', backupRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/oauth', oauthRoutes);
 
-// Serve static files from client/dist in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, 'client/dist')));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'client/dist/index.html'));
+// Serve static files from client/dist
+const clientDistPath = path.join(__dirname, 'client/dist');
+if (fs.existsSync(clientDistPath)) {
+  console.log('✅ Found client build at:', clientDistPath);
+  app.use(express.static(clientDistPath));
+
+  // Handle SPA routing - must be after other routes
+  app.get(/^(?!\/api).*/, (req, res) => {
+    res.sendFile(path.join(clientDistPath, 'index.html'));
+  });
+} else {
+  console.warn('⚠️  Client build not found at:', clientDistPath);
+  console.warn('💡 Run "npm run build" in the root directory to build the frontend.');
+
+  app.get('/', (req, res) => {
+    res.status(200).send(`
+      <html>
+        <head><title>Backup Server</title></head>
+        <body style="font-family: sans-serif; padding: 40px; text-align: center;">
+          <h1>🚀 Backup Server API is Running</h1>
+          <p>But the frontend UI is not yet built.</p>
+          <div style="background: #f0f0f0; padding: 20px; border-radius: 8px; display: inline-block; margin-top: 20px;">
+            <code>npm run build</code>
+          </div>
+          <p><a href="/api/health">Check API Health</a></p>
+        </body>
+      </html>
+    `);
   });
 }
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Server is running' });
+  res.json({
+    status: 'ok',
+    message: 'Server is running',
+    environment: process.env.NODE_ENV || 'development',
+    time: new Date().toISOString()
+  });
 });
 
 // Error handling middleware
