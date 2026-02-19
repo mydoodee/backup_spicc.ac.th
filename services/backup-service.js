@@ -27,7 +27,14 @@ class BackupService {
         const errors = [];
         const globalDumpUser = process.env.BACKUP_USER || process.env.DB_USER;
         const globalDumpPassword = process.env.BACKUP_PASSWORD || process.env.DB_PASSWORD;
-        const mysqldumpPath = process.env.MYSQL_DUMP_PATH || 'mysqldump';
+        let mysqldumpPath = process.env.MYSQL_DUMP_PATH || 'mysqldump';
+
+        // Basic fallback: if we are on Linux/Unix but the path looks like Windows (starts with Drive: or has backslashes)
+        const isWindowsPath = /^[a-zA-Z]:[/\\]/.test(mysqldumpPath) || mysqldumpPath.includes('\\');
+        if (process.platform !== 'win32' && isWindowsPath) {
+            console.warn(`⚠️  Detected Windows-style path for mysqldump on ${process.platform}: "${mysqldumpPath}". Falling back to 'mysqldump' command.`);
+            mysqldumpPath = 'mysqldump';
+        }
 
         for (const dbName of dbNames) {
             try {
@@ -39,9 +46,20 @@ class BackupService {
                 const filename = `mysql_backup_${dbName}_${timestamp}.sql`;
                 const backupPath = path.join(__dirname, '../backups', filename);
 
-                const command = `"${mysqldumpPath}" -h ${process.env.DB_HOST} -P ${process.env.DB_PORT} -u ${dumpUser} -p"${dumpPassword}" ${dbName} > "${backupPath}"`;
+                const maskedCommand = `"${mysqldumpPath}" -h ${process.env.DB_HOST} -P ${process.env.DB_PORT} -u ${dumpUser} -p"********" ${dbName} > "${backupPath}"`;
+                const command = `"${mysqldumpPath}" -h ${process.env.DB_HOST} -P ${process.env.DB_PORT} -u ${dumpUser} ${dbName} > "${backupPath}"`;
 
-                await execPromise(command);
+                console.log(`Running backup command: ${maskedCommand}`);
+
+                try {
+                    // Use MYSQL_PWD to avoid shell escaping issues with passwords
+                    await execPromise(command, {
+                        env: { ...process.env, MYSQL_PWD: dumpPassword }
+                    });
+                } catch (execErr) {
+                    console.error(`Exec error for ${dbName}:`, execErr);
+                    throw new Error(`Mysqldump failed: ${execErr.message}. Stderr: ${execErr.stderr || 'none'}`);
+                }
                 const fileSize = fs.statSync(backupPath).size;
 
                 const [result] = await db.query(
@@ -74,7 +92,19 @@ class BackupService {
                 }
 
                 results.push({ db: dbName, filename, size: fileSize, uploadedToDrive: !!driveFileId, driveError });
+
+                // Auto-cleanup local file if uploaded to drive and not configured to keep it
+                const keepLocal = process.env.KEEP_LOCAL_BACKUP === 'true';
+                if (driveFileId && !keepLocal && fs.existsSync(backupPath)) {
+                    try {
+                        fs.unlinkSync(backupPath);
+                        console.log(`🗑️ Deleted local backup file: ${filename}`);
+                    } catch (unlinkErr) {
+                        console.error(`❌ Failed to delete local file ${filename}:`, unlinkErr.message);
+                    }
+                }
             } catch (err) {
+                console.error(`Backup failed for database ${dbName}:`, err.message);
                 errors.push({ db: dbName, error: err.message });
                 await db.query(
                     'INSERT INTO backup_history (backup_type, filename, filepath, status, error_message, created_by) VALUES (?, ?, ?, ?, ?, ?)',
@@ -107,6 +137,8 @@ class BackupService {
 
         const results = [];
         const errors = [];
+        const excludesSource = process.env.FILES_EXCLUDE || '';
+        const excludes = excludesSource.split(',').map(e => e.trim()).filter(Boolean);
 
         for (const targetPath of paths) {
             const pathName = path.basename(targetPath).replace(/[^a-z0-9]/gi, '_');
@@ -115,11 +147,17 @@ class BackupService {
 
             try {
                 if (isRemote) {
-                    await sshService.downloadDirectoryAsTar(targetPath, backupPath);
+                    await sshService.downloadDirectoryAsTar(targetPath, backupPath, excludes);
                 } else {
                     const parentDir = path.dirname(targetPath);
                     const targetDir = path.basename(targetPath);
-                    const command = `tar -czf "${backupPath}" -C "${parentDir}" "${targetDir}" 2>&1`;
+
+                    let excludeFlags = '';
+                    if (excludes.length > 0) {
+                        excludeFlags = excludes.map(pattern => `--exclude='${pattern}'`).join(' ');
+                    }
+
+                    const command = `tar ${excludeFlags} -czf "${backupPath}" -C "${parentDir}" "${targetDir}" 2>&1`;
                     await execPromise(command);
                 }
 
@@ -155,6 +193,17 @@ class BackupService {
                 }
 
                 results.push({ path: targetPath, filename, size: fileSize, uploadedToDrive: !!driveFileId, driveError });
+
+                // Auto-cleanup local file if uploaded to drive and not configured to keep it
+                const keepLocal = process.env.KEEP_LOCAL_BACKUP === 'true';
+                if (driveFileId && !keepLocal && fs.existsSync(backupPath)) {
+                    try {
+                        fs.unlinkSync(backupPath);
+                        console.log(`🗑️ Deleted local file backup: ${filename}`);
+                    } catch (unlinkErr) {
+                        console.error(`❌ Failed to delete local file ${filename}:`, unlinkErr.message);
+                    }
+                }
             } catch (err) {
                 errors.push({ path: targetPath, error: err.message });
                 await db.query(

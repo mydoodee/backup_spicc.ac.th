@@ -38,18 +38,19 @@ class SshService {
      * @param {string} remotePath Path to the remote directory
      * @param {string} localPath Path to save the tarball locally
      */
-    async downloadDirectoryAsTar(remotePath, localPath) {
+    async downloadDirectoryAsTar(remotePath, localPath, excludes = []) {
         const conn = await this.connect();
 
         return new Promise((resolve, reject) => {
-            // Command to tar the directory and output to stdout
-            // -c: create
-            // -z: gzip
-            // -f -: output to stdout
-            // -C: change directory (to avoid including full path parents)
             const parentDir = path.dirname(remotePath).replace(/\\/g, '/');
             const targetDir = path.basename(remotePath);
-            const cmd = `tar -czf - -C "${parentDir}" "${targetDir}"`;
+
+            let excludeFlags = '';
+            if (Array.isArray(excludes) && excludes.length > 0) {
+                excludeFlags = excludes.map(pattern => `--exclude='${pattern}'`).join(' ');
+            }
+
+            const cmd = `tar ${excludeFlags} -czf - -C "${parentDir}" "${targetDir}"`;
 
             console.log(`Executing remote command: ${cmd}`);
 
